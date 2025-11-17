@@ -12,8 +12,8 @@ except ImportError:
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
 
-def choose_image_files(parent: Optional[object] = None) -> Optional[List[str]]:
-    """Open a folder picker and return all image file paths under it."""
+def choose_image_folder(parent: Optional[object] = None) -> Optional[tuple[str, List[str]]]:
+    """Open a folder picker and return (folder_path, image_file_paths)."""
     if QtWidgets is None:
         raise RuntimeError("PyQt5 is required for choose_image_files")
 
@@ -32,4 +32,4 @@ def choose_image_files(parent: Optional[object] = None) -> Optional[List[str]]:
         for path in sorted(base.rglob("*"))
         if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
     ]
-    return files
+    return folder, files
