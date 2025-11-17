@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "image-search-app"
+version = "0.1.0"
+description = "Starter PyQt project configured for EasyOCR + OpenCV"
+authors = [{name = ""}]
+readme = "README.md"
+license = {text = "Proprietary"}
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt5>=5.15",
+    "easyocr>=1.7",
+    "opencv-python>=4.8",
+]
+
+[tool.setuptools.package-data]
+image_search_app = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
