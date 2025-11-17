@@ -18,4 +18,4 @@ dist/
 .idea/
 .vscode/
 
-test.js
+src/image_search_app/tests

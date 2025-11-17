@@ -10,6 +10,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from image_search_app.scripts.search_for_img_file import choose_image_folder
 from image_search_app.scripts.scan_worker import ScanWorker
+from image_search_app.scripts.card_classifier import classify_card
 
 
 class SearchWindow(QtWidgets.QWidget):
@@ -150,7 +151,12 @@ class SearchWindow(QtWidgets.QWidget):
             self._scan_worker.request_cancel()
 
     def _on_scan_finished(self, folder_path: str, cards: List[object]) -> None:
-        card_dicts = [card.to_dict() for card in cards if hasattr(card, "to_dict")]
+        card_dicts: List[Dict[str, object]] = []
+        for card in cards:
+            data = classify_card(card)
+            inner = next(iter(data.values()))
+            data["file_path"] = inner.get("file_path", "")
+            card_dicts.append(data)
         save_folder_cards(folder_path, card_dicts)
         cache = _load_cache()
         merged_cards = _collect_cards(cache, preferred_path=folder_path)
@@ -173,8 +179,9 @@ class SearchWindow(QtWidgets.QWidget):
             return
 
         for card in cards:
-            name = str(card.get("name", "Unknown"))
-            path = str(card.get("file_path", ""))
+            data = self._extract_card_data(card)
+            name = str(data.get("name", "Unknown"))
+            path = str(self._extract_file_path(card))
             item = QtWidgets.QListWidgetItem(f"{name} - {path}")
             item.setData(QtCore.Qt.UserRole, path)
             self.list_widget.addItem(item)
@@ -192,8 +199,9 @@ class SearchWindow(QtWidgets.QWidget):
         self.list_widget.clear()
         if cards:
             for card in cards:
-                name = str(card.get("name", "Unknown"))
-                path = str(card.get("file_path", ""))
+                data = self._extract_card_data(card)
+                name = str(data.get("name", "Unknown"))
+                path = str(self._extract_file_path(card))
                 item = QtWidgets.QListWidgetItem(f"{name} - {path}")
                 item.setData(QtCore.Qt.UserRole, path)
                 self.list_widget.addItem(item)
@@ -237,22 +245,31 @@ class SearchWindow(QtWidgets.QWidget):
 
     def _find_card_by_path(self, path: str) -> Optional[Dict[str, object]]:
         for card in self.cards:
-            if str(card.get("file_path", "")) == path:
+            if self._extract_file_path(card) == path:
                 return card
         return None
 
+    def _extract_file_path(self, card: Dict[str, object]) -> str:
+        if isinstance(card, dict) and "file_path" in card:
+            return str(card.get("file_path", ""))
+        if isinstance(card, dict) and len(card) == 1:
+            inner = next(iter(card.values()))
+            if isinstance(inner, dict):
+                return str(inner.get("file_path", ""))
+        return ""
+
+    def _extract_card_data(self, card: Dict[str, object]) -> Dict[str, object]:
+        if isinstance(card, dict) and len(card) == 1:
+            inner = next(iter(card.values()))
+            if isinstance(inner, dict):
+                return inner
+        if isinstance(card, dict):
+            return card
+        return {}
+
     def _update_json_display(self, card: Optional[Dict[str, object]]) -> None:
-        card_payload = None
-        if card:
-            # Split text into list of lines for clearer display.
-            card_copy = dict(card)
-            text_val = card_copy.get("text", "")
-            if isinstance(text_val, str):
-                card_copy["text"] = text_val.splitlines()
-            card_payload = card_copy
-        payload: Dict[str, object] = {"card": card_payload}
+        payload: Dict[str, object] = {"card": card} if card else {"card": None}
         try:
-            # Render Unicode characters instead of escaping them.
             text = json.dumps(payload, indent=2, ensure_ascii=False)
         except Exception:
             text = "Unable to render card data."
