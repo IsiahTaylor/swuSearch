@@ -1,1 +1,0 @@
-Take in an cv2

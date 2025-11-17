@@ -38,7 +38,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.clear_button.clicked.connect(self._on_clear_clicked)
         controls.addWidget(self.clear_button)
 
-        self.search_button = QtWidgets.QPushButton("Scan Image Folder")
+        self.search_button = QtWidgets.QPushButton("Scan PDF Folder")
         self.search_button.clicked.connect(self._on_scan_clicked)
         controls.addWidget(self.search_button)
 
@@ -168,7 +168,7 @@ class SearchWindow(QtWidgets.QWidget):
     def _refresh_list(self, cards: List[Dict[str, object]], folder_path: str) -> None:
         self.list_widget.clear()
         if not cards:
-            self.list_widget.addItem(f"No images found in {folder_path}.")
+            self.list_widget.addItem(f"No PDFs found in {folder_path}.")
             self._update_json_display(None)
             return
 
@@ -242,9 +242,18 @@ class SearchWindow(QtWidgets.QWidget):
         return None
 
     def _update_json_display(self, card: Optional[Dict[str, object]]) -> None:
-        payload: Dict[str, object] = {"card": card} if card else {"card": None}
+        card_payload = None
+        if card:
+            # Split text into list of lines for clearer display.
+            card_copy = dict(card)
+            text_val = card_copy.get("text", "")
+            if isinstance(text_val, str):
+                card_copy["text"] = text_val.splitlines()
+            card_payload = card_copy
+        payload: Dict[str, object] = {"card": card_payload}
         try:
-            text = json.dumps(payload, indent=2)
+            # Render Unicode characters instead of escaping them.
+            text = json.dumps(payload, indent=2, ensure_ascii=False)
         except Exception:
             text = "Unable to render card data."
         self.json_view.setPlainText(text)

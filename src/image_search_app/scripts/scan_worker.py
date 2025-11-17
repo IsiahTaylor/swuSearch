@@ -1,11 +1,11 @@
-"""Background worker for scanning images into Card objects."""
+"""Background worker for scanning PDFs into Card objects."""
 import concurrent.futures
 import threading
-from typing import List
+from typing import List, Tuple
 
 from PyQt5 import QtCore
 
-from image_search_app.scripts.img_to_card import image_to_card
+from image_search_app.scripts.pdf_to_card import pdf_page_to_card, get_pdf_page_count
 
 
 class ScanWorker(QtCore.QObject):
@@ -26,13 +26,26 @@ class ScanWorker(QtCore.QObject):
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
-        total = len(self._paths)
+        tasks: List[Tuple[str, int]] = []
+        for pdf_path in self._paths:
+            try:
+                page_count = get_pdf_page_count(pdf_path)
+            except Exception as exc:
+                self.error.emit(f"Failed to read PDF {pdf_path}: {exc}")
+                continue
+            for idx in range(page_count):
+                tasks.append((pdf_path, idx))
+
+        total = len(tasks)
         processed = 0
         cards: List[object] = []
         self.progress.emit(processed, total)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(image_to_card, path): path for path in self._paths}
+            futures = {
+                executor.submit(pdf_page_to_card, pdf_path, page_index): (pdf_path, page_index)
+                for pdf_path, page_index in tasks
+            }
             for future in concurrent.futures.as_completed(futures):
                 if self._stop_event.is_set():
                     for fut in futures:
