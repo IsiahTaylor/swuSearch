@@ -10,6 +10,7 @@ from image_search_app.classes.cards.event import Event
 from image_search_app.classes.cards.leader import Leader
 from image_search_app.classes.cards.unit import Unit
 from image_search_app.classes.cards.upgrade import Upgrade
+from image_search_app.scripts.card_classifier import classify_card
 
 
 def _detect_type(top_text: str) -> str:
@@ -65,7 +66,7 @@ def pdf_page_to_card(pdf_path: str, page_index: int) -> Optional[Card]:
         "Leader": Leader,
     }
     cls = cls_map.get(card_type, Card)
-    return cls(
+    card = cls(
         name=name,
         file_path=file_ref,
         size_bytes=stat.st_size,
@@ -73,3 +74,4 @@ def pdf_page_to_card(pdf_path: str, page_index: int) -> Optional[Card]:
         type=card_type,
         text=full_text,
     )
+    return classify_card(card)
