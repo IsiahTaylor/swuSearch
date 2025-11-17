@@ -28,9 +28,17 @@ class SearchWindow(QtWidgets.QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
+        controls = QtWidgets.QHBoxLayout()
+        controls.setSpacing(8)
+        layout.addLayout(controls)
+
+        self.clear_button = QtWidgets.QPushButton("Clear Cache")
+        self.clear_button.clicked.connect(self._on_clear_clicked)
+        controls.addWidget(self.clear_button)
+
         self.search_button = QtWidgets.QPushButton("Scan Image Folder")
         self.search_button.clicked.connect(self._on_scan_clicked)
-        layout.addWidget(self.search_button)
+        controls.addWidget(self.search_button)
 
         content_row = QtWidgets.QHBoxLayout()
         content_row.setSpacing(12)
@@ -105,6 +113,14 @@ class SearchWindow(QtWidgets.QWidget):
         else:
             self.list_widget.addItem("No cached data. Scan a folder to begin.")
 
+    def _on_clear_clicked(self) -> None:
+        clear_cache()
+        self.cards = []
+        self.list_widget.clear()
+        self.list_widget.addItem("Cache cleared. Scan a folder to begin.")
+        self.image_label.setText("Select a card to preview the image.")
+        self.image_label.setPixmap(QtGui.QPixmap())
+
     def _on_card_highlighted(
         self,
         current: QtWidgets.QListWidgetItem,
@@ -145,6 +161,16 @@ def _load_cache() -> Dict[str, object]:
 def _save_cache(data: Dict[str, object]) -> None:
     path = _data_file_path()
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def clear_cache() -> None:
+    path = _data_file_path()
+    if path.exists():
+        try:
+            path.unlink()
+        except Exception:
+            # If deletion fails, overwrite with empty cache.
+            path.write_text(json.dumps({"folders": {}}), encoding="utf-8")
 
 
 def save_folder_cards(folder_path: str, cards: List[Dict[str, object]]) -> None:
