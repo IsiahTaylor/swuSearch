@@ -81,9 +81,11 @@ class SearchWindow(QtWidgets.QWidget):
         folder_path, files = selection
         cards = [card.to_dict() for card in images_to_cards(files)]
         save_folder_cards(folder_path, cards)
-        self.cards = cards
-        self._refresh_list(cards, folder_path)
-        self._update_json_display(cards[0] if cards else None)
+        cache = _load_cache()
+        merged_cards = _collect_cards(cache, preferred_path=folder_path)
+        self.cards = merged_cards
+        self._refresh_list(merged_cards, "cached folders")
+        self._update_json_display(merged_cards[0] if merged_cards else None)
 
     def _refresh_list(self, cards: List[Dict[str, object]], folder_path: str) -> None:
         self.list_widget.clear()
@@ -106,14 +108,7 @@ class SearchWindow(QtWidgets.QWidget):
 
     def _load_cached_cards(self) -> None:
         cache = _load_cache()
-        folders = cache.get("folders", {}) if isinstance(cache, dict) else {}
-        cards: List[Dict[str, object]] = []
-        if isinstance(folders, dict):
-            for data in folders.values():
-                if isinstance(data, dict):
-                    stored = data.get("cards", [])
-                    if isinstance(stored, list):
-                        cards.extend(stored)
+        cards = _collect_cards(cache)
 
         self.cards = cards
         self.list_widget.clear()
@@ -206,6 +201,37 @@ def clear_cache() -> None:
         except Exception:
             # If deletion fails, overwrite with empty cache.
             path.write_text(json.dumps({"folders": {}}), encoding="utf-8")
+
+
+def _collect_cards(
+    cache: Dict[str, object], preferred_path: Optional[str] = None
+) -> List[Dict[str, object]]:
+    folders = cache.get("folders", {}) if isinstance(cache, dict) else {}
+    if not isinstance(folders, dict):
+        return []
+
+    items = list(folders.items())
+    if preferred_path and preferred_path in folders:
+        preferred = folders[preferred_path]
+        items = [(k, v) for k, v in items if k != preferred_path]
+        items.append((preferred_path, preferred))
+
+    by_file: Dict[str, Dict[str, object]] = {}
+    for _, data in items:
+        if not isinstance(data, dict):
+            continue
+        stored = data.get("cards", [])
+        if not isinstance(stored, list):
+            continue
+        for card in stored:
+            if not isinstance(card, dict):
+                continue
+            file_path = str(card.get("file_path", ""))
+            if not file_path:
+                continue
+            by_file[file_path] = card
+
+    return list(by_file.values())
 
 
 def save_folder_cards(folder_path: str, cards: List[Dict[str, object]]) -> None:
