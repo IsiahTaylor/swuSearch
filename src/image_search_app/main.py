@@ -21,6 +21,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.resize(500, 400)
         self.cards: List[Dict[str, object]] = []
         self._build_ui()
+        self._load_cached_cards()
 
     def _build_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
@@ -58,6 +59,27 @@ class SearchWindow(QtWidgets.QWidget):
             path = str(card.get("file_path", ""))
             item = QtWidgets.QListWidgetItem(f"{name} — {path}")
             self.list_widget.addItem(item)
+
+    def _load_cached_cards(self) -> None:
+        cache = _load_cache()
+        folders = cache.get("folders", {}) if isinstance(cache, dict) else {}
+        cards: List[Dict[str, object]] = []
+        if isinstance(folders, dict):
+            for data in folders.values():
+                if isinstance(data, dict):
+                    stored = data.get("cards", [])
+                    if isinstance(stored, list):
+                        cards.extend(stored)
+
+        self.cards = cards
+        self.list_widget.clear()
+        if cards:
+            for card in cards:
+                name = str(card.get("name", "Unknown"))
+                path = str(card.get("file_path", ""))
+                self.list_widget.addItem(f"{name} — {path}")
+        else:
+            self.list_widget.addItem("No cached data. Scan a folder to begin.")
 
 
 def _data_file_path() -> Path:
