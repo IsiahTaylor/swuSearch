@@ -1,4 +1,4 @@
-"""Utilities for selecting a folder and collecting PDF file paths."""
+"""Utilities for selecting PDFs (via file picker) and collecting file paths."""
 from pathlib import Path
 from typing import List, Optional
 
@@ -13,23 +13,18 @@ PDF_EXTENSIONS = {".pdf"}
 
 
 def choose_image_folder(parent: Optional[object] = None) -> Optional[tuple[str, List[str]]]:
-    """Open a folder picker and return (folder_path, pdf_file_paths)."""
+    """Open a file picker and return (folder_path, pdf_file_paths)."""
     if QtWidgets is None:
         raise RuntimeError("PyQt5 is required for choose_image_files")
 
-    folder = QtWidgets.QFileDialog.getExistingDirectory(
-        parent,
-        "Select Folder Containing PDFs",
-        "",
-        QtWidgets.QFileDialog.ShowDirsOnly | QtWidgets.QFileDialog.DontResolveSymlinks,
-    )
-    if not folder:
+    dialog = QtWidgets.QFileDialog(parent, "Select PDFs")
+    dialog.setFileMode(QtWidgets.QFileDialog.ExistingFiles)
+    dialog.setNameFilter("PDF Files (*.pdf)")
+    if dialog.exec_() != QtWidgets.QDialog.Accepted:
         return None
 
-    base = Path(folder)
-    files = [
-        str(path)
-        for path in sorted(base.rglob("*"))
-        if path.is_file() and path.suffix.lower() in PDF_EXTENSIONS
-    ]
-    return folder, files
+    files = dialog.selectedFiles()
+    if not files:
+        return None
+    base_folder = str(Path(files[0]).parent)
+    return base_folder, files
