@@ -4,12 +4,61 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+import concurrent.futures
+import threading
 
 import appdirs
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from image_search_app.scripts.batch_img_to_card import images_to_cards
 from image_search_app.scripts.search_for_img_file import choose_image_folder
+from image_search_app.scripts.img_to_card import image_to_card
+
+
+class ScanWorker(QtCore.QObject):
+    """Worker object to scan images on a background thread with progress."""
+
+    progress = QtCore.pyqtSignal(int, int)  # processed, total
+    finished = QtCore.pyqtSignal(list)
+    cancelled = QtCore.pyqtSignal(list)
+    error = QtCore.pyqtSignal(str)
+
+    def __init__(self, paths: List[str]) -> None:
+        super().__init__()
+        self._paths = paths
+        self._stop_event = threading.Event()
+
+    def request_cancel(self) -> None:
+        self._stop_event.set()
+
+    @QtCore.pyqtSlot()
+    def run(self) -> None:
+        total = len(self._paths)
+        processed = 0
+        cards: List[object] = []
+        self.progress.emit(processed, total)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(image_to_card, path): path for path in self._paths}
+            for future in concurrent.futures.as_completed(futures):
+                if self._stop_event.is_set():
+                    for fut in futures:
+                        fut.cancel()
+                    self.cancelled.emit(cards)
+                    return
+                try:
+                    card = future.result()
+                    if card is not None:
+                        cards.append(card)
+                except Exception as exc:
+                    # surface error but continue
+                    self.error.emit(str(exc))
+                processed += 1
+                self.progress.emit(processed, total)
+
+        if self._stop_event.is_set():
+            self.cancelled.emit(cards)
+        else:
+            self.finished.emit(cards)
 
 
 class SearchWindow(QtWidgets.QWidget):
@@ -20,6 +69,8 @@ class SearchWindow(QtWidgets.QWidget):
         self.setWindowTitle("Image Search")
         self.resize(900, 675)
         self.cards: List[Dict[str, object]] = []
+        self._scan_thread: Optional[QtCore.QThread] = None
+        self._scan_worker: Optional[ScanWorker] = None
         self._build_ui()
         self._load_cached_cards()
 
@@ -39,6 +90,18 @@ class SearchWindow(QtWidgets.QWidget):
         self.search_button = QtWidgets.QPushButton("Scan Image Folder")
         self.search_button.clicked.connect(self._on_scan_clicked)
         controls.addWidget(self.search_button)
+
+        self.cancel_button = QtWidgets.QPushButton("Cancel Scan")
+        self.cancel_button.setEnabled(False)
+        self.cancel_button.clicked.connect(self._on_cancel_scan)
+        controls.addWidget(self.cancel_button)
+
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(1)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
 
         content_row = QtWidgets.QHBoxLayout()
         content_row.setSpacing(12)
@@ -79,13 +142,77 @@ class SearchWindow(QtWidgets.QWidget):
         if selection is None:
             return
         folder_path, files = selection
-        cards = [card.to_dict() for card in images_to_cards(files)]
-        save_folder_cards(folder_path, cards)
+        if not files:
+            self._refresh_list([], folder_path)
+            return
+        self._start_scan(folder_path, files)
+
+    def _start_scan(self, folder_path: str, files: List[str]) -> None:
+        # Clean up any prior worker/thread.
+        if self._scan_thread:
+            self._scan_thread.quit()
+            self._scan_thread.wait()
+            self._scan_thread = None
+            self._scan_worker = None
+
+        self.search_button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(len(files))
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat(f"Scanning 0/{len(files)}")
+
+        thread = QtCore.QThread()
+        worker = ScanWorker(files)
+        worker.moveToThread(thread)
+        worker.progress.connect(self._on_scan_progress)
+        worker.finished.connect(lambda cards: self._on_scan_finished(folder_path, cards))
+        worker.cancelled.connect(self._on_scan_cancelled)
+        worker.error.connect(self._on_scan_error)
+        worker.finished.connect(self._cleanup_scan)
+        worker.cancelled.connect(self._cleanup_scan)
+        thread.started.connect(worker.run)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        self._scan_thread = thread
+        self._scan_worker = worker
+        thread.start()
+
+    def _cleanup_scan(self) -> None:
+        self.search_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
+        self.progress_bar.setVisible(False)
+        if self._scan_thread:
+            self._scan_thread.quit()
+            self._scan_thread.wait()
+            self._scan_thread = None
+            self._scan_worker = None
+
+    def _on_scan_progress(self, processed: int, total: int) -> None:
+        self.progress_bar.setMaximum(max(1, total))
+        self.progress_bar.setValue(processed)
+        self.progress_bar.setFormat(f"Scanning {processed}/{total}")
+
+    def _on_cancel_scan(self) -> None:
+        if self._scan_worker:
+            self._scan_worker.request_cancel()
+
+    def _on_scan_finished(self, folder_path: str, cards: List[object]) -> None:
+        card_dicts = [card.to_dict() for card in cards if hasattr(card, "to_dict")]
+        save_folder_cards(folder_path, card_dicts)
         cache = _load_cache()
         merged_cards = _collect_cards(cache, preferred_path=folder_path)
         self.cards = merged_cards
         self._refresh_list(merged_cards, "cached folders")
         self._update_json_display(merged_cards[0] if merged_cards else None)
+
+    def _on_scan_cancelled(self, cards: List[object]) -> None:
+        self._refresh_list([], "scan cancelled")
+        self._update_json_display(None)
+
+    def _on_scan_error(self, message: str) -> None:
+        QtWidgets.QMessageBox.warning(self, "Scan Warning", message)
 
     def _refresh_list(self, cards: List[Dict[str, object]], folder_path: str) -> None:
         self.list_widget.clear()
