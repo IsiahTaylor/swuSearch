@@ -3,7 +3,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import appdirs
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -64,6 +64,16 @@ class SearchWindow(QtWidgets.QWidget):
         self.image_label.setScaledContents(False)
         content_row.addWidget(self.image_label, 2)
 
+        self.json_view = QtWidgets.QTextEdit()
+        self.json_view.setReadOnly(True)
+        self.json_view.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        self.json_view.setMinimumHeight(160)
+        self.json_view.setPlaceholderText("Card data will appear here as JSON.")
+        font = self.json_view.font()
+        font.setFamily("Consolas")
+        self.json_view.setFont(font)
+        layout.addWidget(self.json_view)
+
     def _on_scan_clicked(self) -> None:
         selection = choose_image_folder(parent=self)
         if selection is None:
@@ -73,11 +83,13 @@ class SearchWindow(QtWidgets.QWidget):
         save_folder_cards(folder_path, cards)
         self.cards = cards
         self._refresh_list(cards, folder_path)
+        self._update_json_display(cards[0] if cards else None)
 
     def _refresh_list(self, cards: List[Dict[str, object]], folder_path: str) -> None:
         self.list_widget.clear()
         if not cards:
             self.list_widget.addItem(f"No images found in {folder_path}.")
+            self._update_json_display(None)
             return
 
         for card in cards:
@@ -88,6 +100,9 @@ class SearchWindow(QtWidgets.QWidget):
             self.list_widget.addItem(item)
         if cards:
             self.list_widget.setCurrentRow(0)
+            self._update_json_display(cards[0])
+        else:
+            self._update_json_display(None)
 
     def _load_cached_cards(self) -> None:
         cache = _load_cache()
@@ -110,8 +125,10 @@ class SearchWindow(QtWidgets.QWidget):
                 item.setData(QtCore.Qt.UserRole, path)
                 self.list_widget.addItem(item)
             self.list_widget.setCurrentRow(0)
+            self._update_json_display(cards[0])
         else:
             self.list_widget.addItem("No cached data. Scan a folder to begin.")
+            self._update_json_display(None)
 
     def _on_clear_clicked(self) -> None:
         clear_cache()
@@ -120,6 +137,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.list_widget.addItem("Cache cleared. Scan a folder to begin.")
         self.image_label.setText("Select a card to preview the image.")
         self.image_label.setPixmap(QtGui.QPixmap())
+        self._update_json_display(None)
 
     def _on_card_highlighted(
         self,
@@ -128,11 +146,13 @@ class SearchWindow(QtWidgets.QWidget):
     ) -> None:
         path = current.data(QtCore.Qt.UserRole) if current else None
         if not path:
+            self._update_json_display(None)
             return
         pixmap = QtGui.QPixmap(str(path))
         if pixmap.isNull():
             self.image_label.setText("Unable to load image preview.")
             self.image_label.setPixmap(QtGui.QPixmap())
+            self._update_json_display(None)
             return
         target_size = self.image_label.size()
         scaled = pixmap.scaled(
@@ -140,6 +160,21 @@ class SearchWindow(QtWidgets.QWidget):
         )
         self.image_label.setPixmap(scaled)
         self.image_label.setText("")
+        self._update_json_display(self._find_card_by_path(str(path)))
+
+    def _find_card_by_path(self, path: str) -> Optional[Dict[str, object]]:
+        for card in self.cards:
+            if str(card.get("file_path", "")) == path:
+                return card
+        return None
+
+    def _update_json_display(self, card: Optional[Dict[str, object]]) -> None:
+        payload: Dict[str, object] = {"card": card} if card else {"card": None}
+        try:
+            text = json.dumps(payload, indent=2)
+        except Exception:
+            text = "Unable to render card data."
+        self.json_view.setPlainText(text)
 
 
 def _data_file_path() -> Path:
