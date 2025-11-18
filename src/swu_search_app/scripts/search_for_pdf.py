@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 from PyQt5 import QtWidgets
 
 
-def choose_image_folder(parent: QtWidgets.QWidget | None = None) -> Optional[Tuple[str, List[str]]]:
+def choose_pdf_files(parent: QtWidgets.QWidget | None = None) -> Optional[Tuple[str, List[str]]]:
     """
     Show a file picker for PDFs and return the selected files plus their folder.
 

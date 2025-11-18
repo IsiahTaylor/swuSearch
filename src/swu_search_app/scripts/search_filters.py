@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
+# Prefix used internally to mark tokens that came from inside quotes.
 QUOTED_PREFIX = "__QUOTED__"
 
 

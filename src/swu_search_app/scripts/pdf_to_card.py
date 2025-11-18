@@ -25,7 +25,6 @@ def pdf_page_to_card(pdf_path: str, page_index: int) -> Optional[Dict[str, objec
         text = page.get_text("text") or ""
         # Flatten newlines so downstream searches can match across line breaks.
         text = text.replace("\n", " ")
-        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
         # Save a page preview image for the UI.
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))

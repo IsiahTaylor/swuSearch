@@ -1,4 +1,4 @@
-"""Simple PyQt5 window with an image folder picker, card list, and preview."""
+"""PyQt5 UI for scanning PDFs, browsing page previews, and filtering results."""
 import json
 import shutil
 import sys
@@ -9,9 +9,9 @@ from typing import Dict, List, Optional
 import appdirs
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from image_search_app.scripts.search_for_img_file import choose_image_folder
-from image_search_app.scripts.scan_worker import ScanWorker
-from image_search_app.scripts.search_filters import filter_cards
+from swu_search_app.scripts.search_for_pdf import choose_pdf_files
+from swu_search_app.scripts.scan_worker import ScanWorker
+from swu_search_app.scripts.search_filters import filter_cards
 
 
 class SearchWindow(QtWidgets.QWidget):
@@ -28,7 +28,7 @@ class SearchWindow(QtWidgets.QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Image Search")
+        self.setWindowTitle("SWU Search")
         self.resize(900, 675)
         self.cards: List[Dict[str, object]] = []
         self.all_cards: List[Dict[str, object]] = []
@@ -217,16 +217,16 @@ class SearchWindow(QtWidgets.QWidget):
         )
 
     def _on_scan_clicked(self) -> None:
-        selection = choose_image_folder(parent=self)
+        selection = choose_pdf_files(parent=self)
         if selection is None:
             return
-        folder_path, files = selection
-        if not files:
+        folder_path, pdf_files = selection
+        if not pdf_files:
             self._refresh_list([], folder_path)
             return
-        self._start_scan(folder_path, files)
+        self._start_scan(folder_path, pdf_files)
 
-    def _start_scan(self, folder_path: str, files: List[str]) -> None:
+    def _start_scan(self, folder_path: str, pdf_files: List[str]) -> None:
         # Clean up any prior worker/thread.
         if self._scan_thread:
             self._scan_thread.quit()
@@ -237,12 +237,12 @@ class SearchWindow(QtWidgets.QWidget):
         self.search_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setMaximum(len(files))
+        self.progress_bar.setMaximum(len(pdf_files))
         self.progress_bar.setValue(0)
-        self.progress_bar.setFormat(f"Scanning 0/{len(files)}")
+        self.progress_bar.setFormat(f"Scanning 0/{len(pdf_files)}")
 
         thread = QtCore.QThread()
-        worker = ScanWorker(files)
+        worker = ScanWorker(pdf_files)
         worker.moveToThread(thread)
         worker.progress.connect(self._on_scan_progress)
         worker.finished.connect(lambda cards: self._on_scan_finished(folder_path, cards))
@@ -500,6 +500,7 @@ class SearchWindow(QtWidgets.QWidget):
         return super().eventFilter(obj, event)
 
     def _export_selected_previews(self) -> None:
+        """Copy checked preview images to a user-selected destination folder."""
         iterator = QtWidgets.QTreeWidgetItemIterator(self.list_widget)
         preview_paths: List[str] = []
         while iterator.value():
@@ -558,7 +559,7 @@ class SearchWindow(QtWidgets.QWidget):
 
 
 def _data_file_path() -> Path:
-    base = Path(appdirs.user_data_dir("image-search-app", None))
+    base = Path(appdirs.user_data_dir("swu_search_app", None))
     base.mkdir(parents=True, exist_ok=True)
     return base / "appData.json"
 
@@ -591,6 +592,7 @@ def clear_cache() -> None:
 def _collect_cards(
     cache: Dict[str, object], preferred_path: Optional[str] = None, *, allowed: Optional[set] = None
 ) -> List[Dict[str, object]]:
+    """Flatten cached folder entries into a list of cards, preferring the newest folder when provided."""
     folders = cache.get("folders", {}) if isinstance(cache, dict) else {}
     if not isinstance(folders, dict):
         return []

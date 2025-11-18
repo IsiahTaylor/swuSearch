@@ -32,7 +32,7 @@ def main() -> int:
     builds_dir = repo_root / "builds"
     builds_dir.mkdir(exist_ok=True)
 
-    name = f"image-search-app-{args.version}"
+    name = f"swu_search_app-{args.version}"
     exe_path = builds_dir / name
 
     cmd = [
@@ -46,7 +46,7 @@ def main() -> int:
         name,
         "--paths",
         str(repo_root / "src"),
-        str(repo_root / "src" / "image_search_app" / "main.py"),
+        str(repo_root / "src" / "swu_search_app" / "main.py"),
     ]
 
     print("Running:", " ".join(cmd))

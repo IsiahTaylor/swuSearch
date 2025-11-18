@@ -5,20 +5,20 @@ from typing import List, Tuple
 
 from PyQt5 import QtCore
 
-from image_search_app.scripts.pdf_to_card import pdf_page_to_card, get_pdf_page_count
+from swu_search_app.scripts.pdf_to_card import pdf_page_to_card, get_pdf_page_count
 
 
 class ScanWorker(QtCore.QObject):
-    """Worker object to scan images on a background thread with progress signals."""
+    """Worker object to scan PDFs on a background thread with progress signals."""
 
     progress = QtCore.pyqtSignal(int, int)  # processed, total
     finished = QtCore.pyqtSignal(list)
     cancelled = QtCore.pyqtSignal(list)
     error = QtCore.pyqtSignal(str)
 
-    def __init__(self, paths: List[str]) -> None:
+    def __init__(self, pdf_paths: List[str]) -> None:
         super().__init__()
-        self._paths = paths
+        self._pdf_paths = pdf_paths
         self._stop_event = threading.Event()
 
     def request_cancel(self) -> None:
@@ -27,7 +27,7 @@ class ScanWorker(QtCore.QObject):
     @QtCore.pyqtSlot()
     def run(self) -> None:
         tasks: List[Tuple[str, int]] = []
-        for pdf_path in self._paths:
+        for pdf_path in self._pdf_paths:
             try:
                 page_count = get_pdf_page_count(pdf_path)
             except Exception as exc:

@@ -1,10 +1,20 @@
-# Image Search App Skeleton
+# SWU Search App
 
-This project is scaffolded with a `pyproject.toml` so you can install dependencies using pip:
+Simple PyQt5 utility that scans PDFs, shows page previews, and lets you filter/export results.
 
-```
-pip install .
-```
+## Quickstart
+- Install deps (from repo root): `pip install .`
+- Run the app: `python -m swu_search_app.main` (or `python src/swu_search_app/main.py`)
+- Scan PDFs via the UI, then filter and export selected previews.
 
-The main module lives in `src/image_search_app/main.py` and is intentionally left blank per the setup request. Add your PyQt / EasyOCR logic there.
+## Filtering (include/exclude)
+- Supports `AND`, `OR`, parentheses, and quoted phrases.
+- `*` is a single-character wildcard, but only when inside quotes (e.g., `"0 * 0"` matches `0 1 0` but not `0 12 0`).
+- Searches run across extracted text and filenames; include/exclude fields share the same syntax.
+
+## Building an executable
+Run `python scripts/build_executable.py <version>` to produce a PyInstaller binary in `./builds` (e.g., `python scripts/build_executable.py 0.2`).
+
+## Where data is stored
+Cached scan results are written to the OS app data directory under `swu_search_app/appData.json`.
 
