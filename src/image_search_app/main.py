@@ -84,7 +84,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.json_view = QtWidgets.QTextEdit()
         self.json_view.setReadOnly(True)
         self.json_view.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
-        self.json_view.setMinimumHeight(160)
+        self.json_view.setMinimumHeight(80)
         self.json_view.setPlaceholderText("Card data will appear here as JSON.")
         font = self.json_view.font()
         font.setFamily("Consolas")
