@@ -12,10 +12,9 @@ env.bak/
 # Build artifacts
 build/
 dist/
+builds/
 *.egg-info/
 
 # IDE / tooling
 .idea/
 .vscode/
-
-src/image_search_app/tests

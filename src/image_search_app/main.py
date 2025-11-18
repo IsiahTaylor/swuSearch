@@ -68,11 +68,13 @@ class SearchWindow(QtWidgets.QWidget):
         filter_row.addWidget(QtWidgets.QLabel("Include:"))
         self.include_input = QtWidgets.QLineEdit()
         self.include_input.setPlaceholderText('e.g. apple AND orange or "exact phrase"')
+        self.include_input.returnPressed.connect(self._on_filter_apply)
         filter_row.addWidget(self.include_input, 1)
 
         filter_row.addWidget(QtWidgets.QLabel("Exclude:"))
         self.exclude_input = QtWidgets.QLineEdit()
         self.exclude_input.setPlaceholderText('e.g. NOT used; OR/AND/() allowed')
+        self.exclude_input.returnPressed.connect(self._on_filter_apply)
         filter_row.addWidget(self.exclude_input, 1)
 
         self.apply_filter_button = QtWidgets.QPushButton("Apply Filter")
@@ -100,6 +102,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.list_widget.itemSelectionChanged.connect(self._on_selection_changed)
         self.list_widget.itemChanged.connect(self._on_check_changed)
         self.list_widget.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.list_widget.installEventFilter(self)
         split_horizontal.addWidget(self.list_widget)
 
         self.image_label = QtWidgets.QLabel("Select a card to preview the image.")
@@ -163,7 +166,7 @@ class SearchWindow(QtWidgets.QWidget):
             QPushButton:hover { background-color: #262626; }
             QPushButton:pressed { background-color: #2d2d2d; }
             QPushButton:disabled { color: #777; }
-            QListWidget, QTreeWidget, QTextEdit {
+            QListWidget, QTreeWidget, QTextEdit, QLineEdit {
                 background-color: #141414;
                 color: #e8e8e8;
                 border: 1px solid #333;
@@ -171,6 +174,15 @@ class SearchWindow(QtWidgets.QWidget):
             QListWidget::item, QTreeWidget::item { background: #141414; color: #e8e8e8; }
             QListWidget::item:alternate, QTreeWidget::item:alternate { background: #1a1a1a; }
             QListWidget::item:selected, QTreeWidget::item:selected { background: #2a2a2a; color: #ffffff; }
+            QLineEdit {
+                background-color: #1f2a36;
+                border: 1px solid #2f3b47;
+                padding: 4px 6px;
+                border-radius: 4px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #3f5366;
+            }
             QProgressBar {
                 background-color: #141414;
                 color: #f5f5f5;
@@ -464,6 +476,20 @@ class SearchWindow(QtWidgets.QWidget):
         count = len(checked_paths)
         self.selected_count_label.setText(f"Selected: {count}")
         self.export_button.setEnabled(count > 0)
+
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
+        if obj is self.list_widget and event.type() == QtCore.QEvent.KeyPress:
+            if event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
+                item = self.list_widget.currentItem()
+                if item and item.flags() & QtCore.Qt.ItemIsUserCheckable:
+                    new_state = (
+                        QtCore.Qt.Unchecked
+                        if item.checkState(0) == QtCore.Qt.Checked
+                        else QtCore.Qt.Checked
+                    )
+                    item.setCheckState(0, new_state)
+                    return True
+        return super().eventFilter(obj, event)
 
     def _export_selected_previews(self) -> None:
         iterator = QtWidgets.QTreeWidgetItemIterator(self.list_widget)
