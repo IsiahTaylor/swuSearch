@@ -7,11 +7,17 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import appdirs
+import fitz  # PyMuPDF
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from swu_search_app.scripts.search_for_pdf import choose_pdf_files
 from swu_search_app.scripts.scan_worker import ScanWorker
 from swu_search_app.scripts.search_filters import filter_cards
+from swu_search_app.scripts.pdf_to_card import (
+    EXPORT_DPI,
+    EXPORT_TARGET_HEIGHT,
+    EXPORT_TARGET_WIDTH,
+)
 
 
 class SearchWindow(QtWidgets.QWidget):
@@ -527,7 +533,30 @@ class SearchWindow(QtWidgets.QWidget):
                 continue
             target = dest / src.name
             try:
-                shutil.copy2(src, target)
+                card = next(
+                    (c for c in self.cards if str(c.get("file_path", "")) == str(src)),
+                    None,
+                )
+                if card and self._render_export_from_pdf(card, target):
+                    continue
+                image = QtGui.QImage(str(src))
+                if image.isNull():
+                    shutil.copy2(src, target)
+                    continue
+                scaled = image.scaled(
+                    EXPORT_TARGET_WIDTH,
+                    EXPORT_TARGET_HEIGHT,
+                    QtCore.Qt.IgnoreAspectRatio,
+                    QtCore.Qt.SmoothTransformation,
+                )
+                if scaled.isNull():
+                    shutil.copy2(src, target)
+                    continue
+                dots_per_meter = int(EXPORT_DPI / 0.0254)
+                scaled.setDotsPerMeterX(dots_per_meter)
+                scaled.setDotsPerMeterY(dots_per_meter)
+                if not scaled.save(str(target)):
+                    shutil.copy2(src, target)
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{src.name}: {exc}")
 
@@ -538,9 +567,45 @@ class SearchWindow(QtWidgets.QWidget):
                 "Some files could not be exported:\n" + "\n".join(errors),
             )
         else:
-            QtWidgets.QMessageBox.information(
-                self, "Success", f"Exported {len(preview_paths)} file(s) successfully."
+            message_box = QtWidgets.QMessageBox(self)
+            message_box.setIcon(QtWidgets.QMessageBox.Information)
+            message_box.setWindowTitle("Success")
+            message_box.setText(f"Exported {len(preview_paths)} file(s) successfully.")
+            message_box.setStyleSheet(
+                "QLabel { color: #000000; } QPushButton { color: #000000; background-color: #ffffff; }"
             )
+            message_box.exec_()
+
+    def _render_export_from_pdf(self, card: Dict[str, object], target: Path) -> bool:
+        """Render directly from the PDF at export time for higher fidelity output."""
+        pdf_path = str(card.get("pdf_path") or "")
+        if not pdf_path:
+            return False
+        try:
+            page_index = int(card.get("page_index", 0))
+        except Exception:
+            return False
+        try:
+            with fitz.open(pdf_path) as doc:
+                if page_index < 0 or page_index >= doc.page_count:
+                    return False
+                page = doc.load_page(page_index)
+                rect = page.rect
+                scale_x = EXPORT_TARGET_WIDTH / rect.width if rect.width else 1.0
+                scale_y = EXPORT_TARGET_HEIGHT / rect.height if rect.height else 1.0
+                pix = page.get_pixmap(matrix=fitz.Matrix(scale_x, scale_y))
+                pix.save(str(target))
+            # Tag DPI and persist.
+            image = QtGui.QImage(str(target))
+            if image.isNull():
+                return False
+            dots_per_meter = int(EXPORT_DPI / 0.0254)
+            image.setDotsPerMeterX(dots_per_meter)
+            image.setDotsPerMeterY(dots_per_meter)
+            image.save(str(target))
+            return True
+        except Exception:
+            return False
 
     def _extract_card_data(self, card: Dict[str, object]) -> Dict[str, object]:
         if isinstance(card, dict):

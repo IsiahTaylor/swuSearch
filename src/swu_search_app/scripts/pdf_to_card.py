@@ -5,6 +5,11 @@ import tempfile
 
 import fitz  # PyMuPDF
 
+PREVIEW_DPI = 300
+EXPORT_TARGET_WIDTH = 745
+EXPORT_TARGET_HEIGHT = 1040
+EXPORT_DPI = 300
+
 
 def get_pdf_page_count(pdf_path: str) -> int:
     with fitz.open(pdf_path) as doc:
@@ -27,7 +32,7 @@ def pdf_page_to_card(pdf_path: str, page_index: int) -> Optional[Dict[str, objec
         text = text.replace("\n", " ")
 
         # Save a page preview image for the UI.
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+        pix = page.get_pixmap(dpi=PREVIEW_DPI)
         preview_path = Path(tempfile.gettempdir()) / f"{path.stem}_p{page_index + 1}.png"
         pix.save(preview_path)
 
