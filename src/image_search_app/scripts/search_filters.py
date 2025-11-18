@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
+QUOTED_PREFIX = "__QUOTED__"
+
 
 def _tokenize(expr: str) -> List[str]:
     """Split expression into tokens preserving quoted phrases and parentheses."""
@@ -16,8 +18,8 @@ def _tokenize(expr: str) -> List[str]:
         ch = expr[i]
         if ch == '"':
             if in_quote:
-                # End quote.
-                tokens.append("".join(buf).strip())
+                # End quote (mark quoted tokens so wildcards only work in quotes).
+                tokens.append(f"{QUOTED_PREFIX}{''.join(buf).strip()}")
                 buf.clear()
                 in_quote = False
             else:
@@ -70,7 +72,17 @@ def _to_postfix(tokens: Sequence[str]) -> List[str]:
 
 
 def _match_token(token: str, haystack: str) -> bool:
-    return token.lower() in haystack
+    quoted = False
+    if token.startswith(QUOTED_PREFIX):
+        quoted = True
+        token = token[len(QUOTED_PREFIX) :]
+    if not token:
+        return False
+    # Treat '*' as a single-character wildcard only when token came from quotes.
+    pattern = re.escape(token)
+    if quoted and "*" in token:
+        pattern = pattern.replace(r"\*", ".")
+    return re.search(pattern, haystack, re.IGNORECASE) is not None
 
 
 def _eval_postfix(postfix: Sequence[str], haystack: str) -> bool:
@@ -109,7 +121,7 @@ def evaluate_expression(expr: str, haystack: str) -> bool:
 def _card_text(card: Dict[str, object]) -> str:
     text_bits: List[str] = []
     if "scanned_text" in card and isinstance(card["scanned_text"], str):
-        text_bits.append(card["scanned_text"])
+        text_bits.append(card["scanned_text"].replace("\n", " "))
     if "file_path" in card and isinstance(card["file_path"], str):
         text_bits.append(Path(card["file_path"]).name)
     if "pdf_path" in card and isinstance(card["pdf_path"], str):

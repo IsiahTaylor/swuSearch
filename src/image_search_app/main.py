@@ -67,13 +67,17 @@ class SearchWindow(QtWidgets.QWidget):
 
         filter_row.addWidget(QtWidgets.QLabel("Include:"))
         self.include_input = QtWidgets.QLineEdit()
-        self.include_input.setPlaceholderText('e.g. apple AND orange or "exact phrase"')
+        self.include_input.setPlaceholderText(
+            'e.g. apple AND orange or "exact phrase"; "*" only works inside quotes'
+        )
         self.include_input.returnPressed.connect(self._on_filter_apply)
         filter_row.addWidget(self.include_input, 1)
 
         filter_row.addWidget(QtWidgets.QLabel("Exclude:"))
         self.exclude_input = QtWidgets.QLineEdit()
-        self.exclude_input.setPlaceholderText('e.g. NOT used; OR/AND/() allowed')
+        self.exclude_input.setPlaceholderText(
+            'e.g. NOT used; OR/AND/() allowed; "*" only works inside quotes'
+        )
         self.exclude_input.returnPressed.connect(self._on_filter_apply)
         filter_row.addWidget(self.exclude_input, 1)
 
@@ -436,7 +440,11 @@ class SearchWindow(QtWidgets.QWidget):
     def _update_filter_placeholders(self) -> None:
         total = len(self.all_cards)
         self.include_input.setPlaceholderText(
-            f'Include (AND/OR/"", ()). Cached items: {total}' if total else "Include filter"
+            (
+                f'Include (AND/OR/"", (), "*" in quotes). Cached items: {total}'
+                if total
+                else 'Include filter (use "*" only inside quotes)'
+            )
         )
 
     def _find_card_by_path(self, path: str) -> Optional[Dict[str, object]]:
