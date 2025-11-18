@@ -57,21 +57,21 @@ class SearchWindow(QtWidgets.QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
-        content_row = QtWidgets.QHBoxLayout()
-        content_row.setSpacing(12)
-        layout.addLayout(content_row, 1)
+        # Horizontal splitter for list and preview.
+        split_horizontal = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        split_horizontal.setHandleWidth(6)
+        layout.addWidget(split_horizontal, 1)
 
         self.list_widget = QtWidgets.QListWidget()
         self.list_widget.setUniformItemSizes(True)
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.list_widget.currentItemChanged.connect(self._on_card_highlighted)
-        content_row.addWidget(self.list_widget, 1)
+        split_horizontal.addWidget(self.list_widget)
 
         self.image_label = QtWidgets.QLabel("Select a card to preview the image.")
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setMinimumSize(260, 200)
-        self.image_label.setMaximumWidth(500)
         self.image_label.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
         )
@@ -79,17 +79,28 @@ class SearchWindow(QtWidgets.QWidget):
         self.image_label.setFrameShape(QtWidgets.QFrame.Box)
         self.image_label.setStyleSheet("background: #1c1c1c; border: 1px solid #333;")
         self.image_label.setScaledContents(False)
-        content_row.addWidget(self.image_label, 2)
+        split_horizontal.addWidget(self.image_label)
+        split_horizontal.setStretchFactor(0, 1)
+        split_horizontal.setStretchFactor(1, 2)
+
+        # Vertical splitter to make JSON area resizable.
+        split_vertical = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        split_vertical.setHandleWidth(6)
+        split_vertical.addWidget(split_horizontal)
 
         self.json_view = QtWidgets.QTextEdit()
         self.json_view.setReadOnly(True)
         self.json_view.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
-        self.json_view.setMinimumHeight(80)
+        self.json_view.setMinimumHeight(90)
         self.json_view.setPlaceholderText("Card data will appear here as JSON.")
         font = self.json_view.font()
         font.setFamily("Consolas")
         self.json_view.setFont(font)
-        layout.addWidget(self.json_view)
+        split_vertical.addWidget(self.json_view)
+        split_vertical.setStretchFactor(0, 4)
+        split_vertical.setStretchFactor(1, 1)
+
+        layout.addWidget(split_vertical, 1)
 
     def _apply_dark_theme(self) -> None:
         """Apply a simple dark theme to the window and its children."""
