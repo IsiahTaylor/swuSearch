@@ -1,5 +1,6 @@
 """Simple PyQt5 window with an image folder picker, card list, and preview."""
 import json
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,6 +76,9 @@ class SearchWindow(QtWidgets.QWidget):
         self.list_widget.setUniformRowHeights(True)
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.currentItemChanged.connect(self._on_card_highlighted)
+        self.list_widget.itemSelectionChanged.connect(self._on_selection_changed)
+        self.list_widget.itemChanged.connect(self._on_check_changed)
+        self.list_widget.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         split_horizontal.addWidget(self.list_widget)
 
         self.image_label = QtWidgets.QLabel("Select a card to preview the image.")
@@ -99,16 +103,27 @@ class SearchWindow(QtWidgets.QWidget):
         self.json_view = QtWidgets.QTextEdit()
         self.json_view.setReadOnly(True)
         self.json_view.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
-        self.json_view.setMinimumHeight(90)
+        self.json_view.setMinimumHeight(140)
         self.json_view.setPlaceholderText("Card data will appear here as JSON.")
         font = self.json_view.font()
         font.setFamily("Consolas")
         self.json_view.setFont(font)
         split_vertical.addWidget(self.json_view)
-        split_vertical.setStretchFactor(0, 4)
-        split_vertical.setStretchFactor(1, 1)
+        split_vertical.setStretchFactor(0, 3)
+        split_vertical.setStretchFactor(1, 2)
 
         layout.addWidget(split_vertical, 1)
+
+        # Footer row with selection count and export action.
+        footer = QtWidgets.QHBoxLayout()
+        footer.addStretch()
+        self.selected_count_label = QtWidgets.QLabel("Selected: 0")
+        footer.addWidget(self.selected_count_label)
+        self.export_button = QtWidgets.QPushButton("Export Selected")
+        self.export_button.setEnabled(False)
+        self.export_button.clicked.connect(self._export_selected_previews)
+        footer.addWidget(self.export_button)
+        layout.addLayout(footer)
 
     def _apply_dark_theme(self) -> None:
         """Apply a simple dark theme to the window and its children."""
@@ -268,6 +283,8 @@ class SearchWindow(QtWidgets.QWidget):
                 self.list_widget.addTopLevelItem(parent)
             child = QtWidgets.QTreeWidgetItem([f"    {entry_name}"])
             child.setData(0, QtCore.Qt.UserRole, preview_path)
+            child.setFlags(child.flags() | QtCore.Qt.ItemIsUserCheckable)
+            child.setCheckState(0, QtCore.Qt.Unchecked)
             parent.addChild(child)
 
         self.list_widget.expandAll()
@@ -278,6 +295,7 @@ class SearchWindow(QtWidgets.QWidget):
             self._update_json_display(normalized_cards[0])
         else:
             self._update_json_display(None)
+        self._update_selection_state()
 
     def _load_cached_cards(self) -> None:
         cache = _load_cache()
@@ -317,6 +335,8 @@ class SearchWindow(QtWidgets.QWidget):
                     self.list_widget.addTopLevelItem(parent)
                 child = QtWidgets.QTreeWidgetItem([f"    {entry_name}"])
                 child.setData(0, QtCore.Qt.UserRole, preview_path)
+                child.setFlags(child.flags() | QtCore.Qt.ItemIsUserCheckable)
+                child.setCheckState(0, QtCore.Qt.Unchecked)
                 parent.addChild(child)
             self.list_widget.expandAll()
             first = self.list_widget.topLevelItem(0)
@@ -329,6 +349,7 @@ class SearchWindow(QtWidgets.QWidget):
             empty = QtWidgets.QTreeWidgetItem(["No cached data. Scan a folder to begin."])
             self.list_widget.addTopLevelItem(empty)
             self._update_json_display(None)
+        self._update_selection_state()
 
     def _on_clear_clicked(self) -> None:
         clear_cache()
@@ -339,6 +360,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.image_label.setText("Select a card to preview the image.")
         self.image_label.setPixmap(QtGui.QPixmap())
         self._update_json_display(None)
+        self._update_selection_state()
 
     def _on_card_highlighted(
         self,
@@ -362,6 +384,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.image_label.setPixmap(scaled)
         self.image_label.setText("")
         self._update_json_display(self._find_card_by_path(str(path)))
+        self._update_selection_state()
 
     def _find_card_by_path(self, path: str) -> Optional[Dict[str, object]]:
         for card in self.cards:
@@ -379,6 +402,69 @@ class SearchWindow(QtWidgets.QWidget):
                 if isinstance(inner, dict):
                     return str(inner.get("file_path", ""))
         return ""
+
+    def _on_selection_changed(self) -> None:
+        self._update_selection_state()
+
+    def _on_check_changed(self, item: QtWidgets.QTreeWidgetItem, column: int) -> None:  # noqa: ARG002
+        self._update_selection_state()
+
+    def _update_selection_state(self) -> None:
+        iterator = QtWidgets.QTreeWidgetItemIterator(self.list_widget)
+        checked_paths: List[str] = []
+        while iterator.value():
+            item = iterator.value()
+            if (
+                item.data(0, QtCore.Qt.UserRole)
+                and item.checkState(0) == QtCore.Qt.Checked
+            ):
+                checked_paths.append(str(item.data(0, QtCore.Qt.UserRole)))
+            iterator += 1
+        count = len(checked_paths)
+        self.selected_count_label.setText(f"Selected: {count}")
+        self.export_button.setEnabled(count > 0)
+
+    def _export_selected_previews(self) -> None:
+        iterator = QtWidgets.QTreeWidgetItemIterator(self.list_widget)
+        preview_paths: List[str] = []
+        while iterator.value():
+            item = iterator.value()
+            if (
+                item.data(0, QtCore.Qt.UserRole)
+                and item.checkState(0) == QtCore.Qt.Checked
+            ):
+                preview_paths.append(str(item.data(0, QtCore.Qt.UserRole)))
+            iterator += 1
+        if not preview_paths:
+            return
+
+        dest_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select export folder")
+        if not dest_dir:
+            return
+
+        dest = Path(dest_dir)
+        errors: List[str] = []
+        for path in preview_paths:
+            src = Path(path)
+            if not src.exists():
+                errors.append(f"Missing: {src}")
+                continue
+            target = dest / src.name
+            try:
+                shutil.copy2(src, target)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{src.name}: {exc}")
+
+        if errors:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Export completed with issues",
+                "Some files could not be exported:\n" + "\n".join(errors),
+            )
+        else:
+            QtWidgets.QMessageBox.information(
+                self, "Success", f"Exported {len(preview_paths)} file(s) successfully."
+            )
 
     def _extract_card_data(self, card: Dict[str, object]) -> Dict[str, object]:
         if isinstance(card, dict):
