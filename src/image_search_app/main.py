@@ -11,6 +11,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from image_search_app.scripts.search_for_img_file import choose_image_folder
 from image_search_app.scripts.scan_worker import ScanWorker
+from image_search_app.search_filters import filter_cards
 
 
 class SearchWindow(QtWidgets.QWidget):
@@ -30,6 +31,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.setWindowTitle("Image Search")
         self.resize(900, 675)
         self.cards: List[Dict[str, object]] = []
+        self.all_cards: List[Dict[str, object]] = []
         self._scan_thread: Optional[QtCore.QThread] = None
         self._scan_worker: Optional[ScanWorker] = None
         self._apply_dark_theme()
@@ -57,6 +59,25 @@ class SearchWindow(QtWidgets.QWidget):
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._on_cancel_scan)
         controls.addWidget(self.cancel_button)
+
+        # Filter inputs under the control row.
+        filter_row = QtWidgets.QHBoxLayout()
+        filter_row.setSpacing(8)
+        layout.addLayout(filter_row)
+
+        filter_row.addWidget(QtWidgets.QLabel("Include:"))
+        self.include_input = QtWidgets.QLineEdit()
+        self.include_input.setPlaceholderText('e.g. apple AND orange or "exact phrase"')
+        filter_row.addWidget(self.include_input, 1)
+
+        filter_row.addWidget(QtWidgets.QLabel("Exclude:"))
+        self.exclude_input = QtWidgets.QLineEdit()
+        self.exclude_input.setPlaceholderText('e.g. NOT used; OR/AND/() allowed')
+        filter_row.addWidget(self.exclude_input, 1)
+
+        self.apply_filter_button = QtWidgets.QPushButton("Apply Filter")
+        self.apply_filter_button.clicked.connect(self._on_filter_apply)
+        filter_row.addWidget(self.apply_filter_button)
 
         self.progress_bar = QtWidgets.QProgressBar()
         self.progress_bar.setMinimum(0)
@@ -249,6 +270,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.cards = merged_cards
         self._refresh_list(merged_cards, "cached folders")
         self._update_json_display(merged_cards[0] if merged_cards else None)
+        self._update_filter_placeholders()
 
     def _on_scan_cancelled(self, cards: List[object]) -> None:
         self._refresh_list([], "scan cancelled")
@@ -257,7 +279,9 @@ class SearchWindow(QtWidgets.QWidget):
     def _on_scan_error(self, message: str) -> None:
         QtWidgets.QMessageBox.warning(self, "Scan Warning", message)
 
-    def _refresh_list(self, cards: List[Dict[str, object]], folder_path: str) -> None:
+    def _refresh_list(
+        self, cards: List[Dict[str, object]], folder_path: str, *, store_all: bool = True
+    ) -> None:
         self.list_widget.clear()
         if not cards:
             empty = QtWidgets.QTreeWidgetItem([f"No PDFs found in {folder_path}."])
@@ -288,6 +312,8 @@ class SearchWindow(QtWidgets.QWidget):
             parent.addChild(child)
 
         self.list_widget.expandAll()
+        if store_all:
+            self.all_cards = normalized_cards
         self.cards = normalized_cards
         first = self.list_widget.topLevelItem(0)
         if first and first.childCount() > 0:
@@ -316,6 +342,7 @@ class SearchWindow(QtWidgets.QWidget):
 
         cards = _collect_cards(cache, allowed=self.ALLOWED_FIELDS)
 
+        self.all_cards = cards
         self.cards = cards
         self.list_widget.clear()
         if cards:
@@ -350,10 +377,12 @@ class SearchWindow(QtWidgets.QWidget):
             self.list_widget.addTopLevelItem(empty)
             self._update_json_display(None)
         self._update_selection_state()
+        self._update_filter_placeholders()
 
     def _on_clear_clicked(self) -> None:
         clear_cache()
         self.cards = []
+        self.all_cards = []
         self.list_widget.clear()
         empty = QtWidgets.QTreeWidgetItem(["Cache cleared. Scan a folder to begin."])
         self.list_widget.addTopLevelItem(empty)
@@ -385,6 +414,18 @@ class SearchWindow(QtWidgets.QWidget):
         self.image_label.setText("")
         self._update_json_display(self._find_card_by_path(str(path)))
         self._update_selection_state()
+
+    def _on_filter_apply(self) -> None:
+        include_expr = self.include_input.text()
+        exclude_expr = self.exclude_input.text()
+        filtered = filter_cards(self.all_cards, include_expr, exclude_expr)
+        self._refresh_list(filtered, "filtered results", store_all=False)
+
+    def _update_filter_placeholders(self) -> None:
+        total = len(self.all_cards)
+        self.include_input.setPlaceholderText(
+            f'Include (AND/OR/"", ()). Cached items: {total}' if total else "Include filter"
+        )
 
     def _find_card_by_path(self, path: str) -> Optional[Dict[str, object]]:
         for card in self.cards:
