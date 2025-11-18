@@ -1,30 +1,27 @@
-"""Utilities for selecting PDFs (via file picker) and collecting file paths."""
+"""Helper to let the user choose a folder of PDFs to scan."""
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-try:
-    # Imported lazily so this module stays usable from both GUI and CLI contexts.
-    from PyQt5 import QtWidgets
-except ImportError:
-    QtWidgets = None  # type: ignore
+from PyQt5 import QtWidgets
 
 
-PDF_EXTENSIONS = {".pdf"}
+def choose_image_folder(parent: QtWidgets.QWidget | None = None) -> Optional[Tuple[str, List[str]]]:
+    """
+    Show a file picker for PDFs and return the selected files plus their folder.
 
-
-def choose_image_folder(parent: Optional[object] = None) -> Optional[tuple[str, List[str]]]:
-    """Open a file picker and return (folder_path, pdf_file_paths)."""
-    if QtWidgets is None:
-        raise RuntimeError("PyQt5 is required for choose_image_files")
-
-    dialog = QtWidgets.QFileDialog(parent, "Select PDFs")
+    Returns:
+        (folder_path, pdf_paths) if files are selected, otherwise None.
+    """
+    dialog = QtWidgets.QFileDialog(parent, "Select PDF files")
     dialog.setFileMode(QtWidgets.QFileDialog.ExistingFiles)
-    dialog.setNameFilter("PDF Files (*.pdf)")
+    dialog.setNameFilters(["PDF Files (*.pdf)", "All Files (*)"])
     if dialog.exec_() != QtWidgets.QDialog.Accepted:
         return None
 
-    files = dialog.selectedFiles()
-    if not files:
+    selected = dialog.selectedFiles()
+    pdfs = [str(Path(path)) for path in selected if path.lower().endswith(".pdf")]
+    if not pdfs:
         return None
-    base_folder = str(Path(files[0]).parent)
-    return base_folder, files
+
+    folder_path = str(Path(pdfs[0]).parent)
+    return folder_path, sorted(pdfs)

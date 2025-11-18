@@ -10,11 +10,12 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from image_search_app.scripts.search_for_img_file import choose_image_folder
 from image_search_app.scripts.scan_worker import ScanWorker
-from image_search_app.scripts.card_classifier import classify_card
 
 
 class SearchWindow(QtWidgets.QWidget):
     """Window that lets users pick a folder and view discovered images."""
+
+    ALLOWED_FIELDS = {"file_path", "size_bytes", "modified_ts", "scanned_text"}
 
     def __init__(self) -> None:
         super().__init__()
@@ -23,6 +24,7 @@ class SearchWindow(QtWidgets.QWidget):
         self.cards: List[Dict[str, object]] = []
         self._scan_thread: Optional[QtCore.QThread] = None
         self._scan_worker: Optional[ScanWorker] = None
+        self._apply_dark_theme()
         self._build_ui()
         self._load_cached_cards()
 
@@ -75,7 +77,7 @@ class SearchWindow(QtWidgets.QWidget):
         )
         self.image_label.setWordWrap(True)
         self.image_label.setFrameShape(QtWidgets.QFrame.Box)
-        self.image_label.setStyleSheet("background: #f7f7f7;")
+        self.image_label.setStyleSheet("background: #1c1c1c; border: 1px solid #333;")
         self.image_label.setScaledContents(False)
         content_row.addWidget(self.image_label, 2)
 
@@ -88,6 +90,60 @@ class SearchWindow(QtWidgets.QWidget):
         font.setFamily("Consolas")
         self.json_view.setFont(font)
         layout.addWidget(self.json_view)
+
+    def _apply_dark_theme(self) -> None:
+        """Apply a simple dark theme to the window and its children."""
+        self.setObjectName("searchWindow")
+        self.setStyleSheet(
+            """
+            #searchWindow { background-color: #0f0f0f; color: #f5f5f5; }
+            QLabel { color: #f5f5f5; }
+            QPushButton {
+                background-color: #1f1f1f;
+                color: #f5f5f5;
+                border: 1px solid #333;
+                padding: 6px 10px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #262626; }
+            QPushButton:pressed { background-color: #2d2d2d; }
+            QPushButton:disabled { color: #777; }
+            QListWidget, QTextEdit {
+                background-color: #141414;
+                color: #e8e8e8;
+                border: 1px solid #333;
+            }
+            QListWidget::item { background: #141414; color: #e8e8e8; }
+            QListWidget::item:alternate { background: #1a1a1a; }
+            QListWidget::item:selected { background: #2a2a2a; color: #ffffff; }
+            QProgressBar {
+                background-color: #141414;
+                color: #f5f5f5;
+                border: 1px solid #333;
+                text-align: center;
+            }
+            QProgressBar::chunk { background-color: #2e7d32; }
+            QScrollBar:vertical {
+                background: #0f0f0f;
+                width: 12px;
+                margin: 0px;
+            }
+            QScrollBar:horizontal {
+                background: #0f0f0f;
+                height: 12px;
+                margin: 0px;
+            }
+            QScrollBar::handle {
+                background: #333;
+                border-radius: 4px;
+                min-height: 20px;
+                min-width: 20px;
+            }
+            QScrollBar::handle:hover { background: #4a4a4a; }
+            QScrollBar::add-line, QScrollBar::sub-line { background: none; height: 0; width: 0; }
+            QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+            """
+        )
 
     def _on_scan_clicked(self) -> None:
         selection = choose_image_folder(parent=self)
@@ -151,15 +207,11 @@ class SearchWindow(QtWidgets.QWidget):
             self._scan_worker.request_cancel()
 
     def _on_scan_finished(self, folder_path: str, cards: List[object]) -> None:
-        card_dicts: List[Dict[str, object]] = []
-        for card in cards:
-            data = classify_card(card)
-            inner = next(iter(data.values()))
-            data["file_path"] = inner.get("file_path", "")
-            card_dicts.append(data)
-        save_folder_cards(folder_path, card_dicts)
+        # Persist raw scan output (file metadata + scanned text only).
+        normalized = [_normalize_card(card, self.ALLOWED_FIELDS) for card in cards]
+        save_folder_cards(folder_path, normalized)
         cache = _load_cache()
-        merged_cards = _collect_cards(cache, preferred_path=folder_path)
+        merged_cards = _collect_cards(cache, preferred_path=folder_path, allowed=self.ALLOWED_FIELDS)
         self.cards = merged_cards
         self._refresh_list(merged_cards, "cached folders")
         self._update_json_display(merged_cards[0] if merged_cards else None)
@@ -178,31 +230,48 @@ class SearchWindow(QtWidgets.QWidget):
             self._update_json_display(None)
             return
 
-        for card in cards:
+        normalized_cards = [_normalize_card(card, self.ALLOWED_FIELDS) for card in cards]
+        for card in normalized_cards:
             data = self._extract_card_data(card)
-            name = str(data.get("name", "Unknown"))
-            path = str(self._extract_file_path(card))
-            item = QtWidgets.QListWidgetItem(f"{name} - {path}")
+            path = str(self._extract_file_path(data))
+            name = Path(path).name if path else "Unknown"
+            item = QtWidgets.QListWidgetItem(name)
             item.setData(QtCore.Qt.UserRole, path)
             self.list_widget.addItem(item)
-        if cards:
+        self.cards = normalized_cards
+        if normalized_cards:
             self.list_widget.setCurrentRow(0)
-            self._update_json_display(cards[0])
+            self._update_json_display(normalized_cards[0])
         else:
             self._update_json_display(None)
 
     def _load_cached_cards(self) -> None:
         cache = _load_cache()
-        cards = _collect_cards(cache)
+        # Migrate any legacy entries to the slim schema and persist.
+        folders = cache.get("folders", {}) if isinstance(cache, dict) else {}
+        if isinstance(folders, dict):
+            changed = False
+            for folder_path, folder_data in list(folders.items()):
+                if not isinstance(folder_data, dict):
+                    continue
+                raw_cards = folder_data.get("cards", [])
+                normalized_cards = [_normalize_card(c, self.ALLOWED_FIELDS) for c in raw_cards]
+                if raw_cards != normalized_cards:
+                    folder_data["cards"] = normalized_cards
+                    changed = True
+            if changed:
+                _save_cache(cache)
+
+        cards = _collect_cards(cache, allowed=self.ALLOWED_FIELDS)
 
         self.cards = cards
         self.list_widget.clear()
         if cards:
             for card in cards:
                 data = self._extract_card_data(card)
-                name = str(data.get("name", "Unknown"))
+                name = Path(str(self._extract_file_path(card))).name
                 path = str(self._extract_file_path(card))
-                item = QtWidgets.QListWidgetItem(f"{name} - {path}")
+                item = QtWidgets.QListWidgetItem(name)
                 item.setData(QtCore.Qt.UserRole, path)
                 self.list_widget.addItem(item)
             self.list_widget.setCurrentRow(0)
@@ -245,30 +314,30 @@ class SearchWindow(QtWidgets.QWidget):
 
     def _find_card_by_path(self, path: str) -> Optional[Dict[str, object]]:
         for card in self.cards:
-            if self._extract_file_path(card) == path:
-                return card
+            normalized = _normalize_card(card, self.ALLOWED_FIELDS)
+            if self._extract_file_path(normalized) == path:
+                return normalized
         return None
 
     def _extract_file_path(self, card: Dict[str, object]) -> str:
-        if isinstance(card, dict) and "file_path" in card:
-            return str(card.get("file_path", ""))
-        if isinstance(card, dict) and len(card) == 1:
-            inner = next(iter(card.values()))
-            if isinstance(inner, dict):
-                return str(inner.get("file_path", ""))
+        if isinstance(card, dict):
+            if "file_path" in card:
+                return str(card.get("file_path", ""))
+            if len(card) == 1:
+                inner = next(iter(card.values()))
+                if isinstance(inner, dict):
+                    return str(inner.get("file_path", ""))
         return ""
 
     def _extract_card_data(self, card: Dict[str, object]) -> Dict[str, object]:
-        if isinstance(card, dict) and len(card) == 1:
-            inner = next(iter(card.values()))
-            if isinstance(inner, dict):
-                return inner
         if isinstance(card, dict):
-            return card
+            normalized = _normalize_card(card, self.ALLOWED_FIELDS)
+            if normalized:
+                return normalized
         return {}
 
     def _update_json_display(self, card: Optional[Dict[str, object]]) -> None:
-        payload: Dict[str, object] = {"card": card} if card else {"card": None}
+        payload: Dict[str, object] = card or {"card": None}
         try:
             text = json.dumps(payload, indent=2, ensure_ascii=False)
         except Exception:
@@ -308,7 +377,7 @@ def clear_cache() -> None:
 
 
 def _collect_cards(
-    cache: Dict[str, object], preferred_path: Optional[str] = None
+    cache: Dict[str, object], preferred_path: Optional[str] = None, *, allowed: Optional[set] = None
 ) -> List[Dict[str, object]]:
     folders = cache.get("folders", {}) if isinstance(cache, dict) else {}
     if not isinstance(folders, dict):
@@ -333,9 +402,22 @@ def _collect_cards(
             file_path = str(card.get("file_path", ""))
             if not file_path:
                 continue
-            by_file[file_path] = card
+            normalized = _normalize_card(card, allowed) if allowed else card
+            by_file[file_path] = normalized
 
     return list(by_file.values())
+
+
+def _normalize_card(card: Dict[str, object], allowed: set) -> Dict[str, object]:
+    """Return a dict containing only the allowed keys if present."""
+    if not isinstance(card, dict):
+        return {}
+    # If wrapped (legacy), unwrap the inner dict.
+    if len(card) == 1 and not any(k in allowed for k in card):
+        inner = next(iter(card.values()))
+        if isinstance(inner, dict):
+            card = inner
+    return {k: card[k] for k in allowed if k in card}
 
 
 def save_folder_cards(folder_path: str, cards: List[Dict[str, object]]) -> None:

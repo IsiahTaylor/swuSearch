@@ -1,4 +1,4 @@
-"""Background worker for scanning PDFs into Card objects."""
+"""Background worker for scanning PDFs into simple card dicts."""
 import concurrent.futures
 import threading
 from typing import List, Tuple
