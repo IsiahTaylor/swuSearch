@@ -15,7 +15,14 @@ from image_search_app.scripts.scan_worker import ScanWorker
 class SearchWindow(QtWidgets.QWidget):
     """Window that lets users pick a folder and view discovered images."""
 
-    ALLOWED_FIELDS = {"file_path", "size_bytes", "modified_ts", "scanned_text"}
+    ALLOWED_FIELDS = {
+        "file_path",  # preview image path
+        "pdf_path",
+        "page_index",
+        "size_bytes",
+        "modified_ts",
+        "scanned_text",
+    }
 
     def __init__(self) -> None:
         super().__init__()
@@ -62,10 +69,11 @@ class SearchWindow(QtWidgets.QWidget):
         split_horizontal.setHandleWidth(6)
         layout.addWidget(split_horizontal, 1)
 
-        self.list_widget = QtWidgets.QListWidget()
-        self.list_widget.setUniformItemSizes(True)
+        self.list_widget = QtWidgets.QTreeWidget()
+        self.list_widget.setHeaderHidden(True)
+        self.list_widget.setIndentation(18)
+        self.list_widget.setUniformRowHeights(True)
         self.list_widget.setAlternatingRowColors(True)
-        self.list_widget.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.list_widget.currentItemChanged.connect(self._on_card_highlighted)
         split_horizontal.addWidget(self.list_widget)
 
@@ -119,14 +127,14 @@ class SearchWindow(QtWidgets.QWidget):
             QPushButton:hover { background-color: #262626; }
             QPushButton:pressed { background-color: #2d2d2d; }
             QPushButton:disabled { color: #777; }
-            QListWidget, QTextEdit {
+            QListWidget, QTreeWidget, QTextEdit {
                 background-color: #141414;
                 color: #e8e8e8;
                 border: 1px solid #333;
             }
-            QListWidget::item { background: #141414; color: #e8e8e8; }
-            QListWidget::item:alternate { background: #1a1a1a; }
-            QListWidget::item:selected { background: #2a2a2a; color: #ffffff; }
+            QListWidget::item, QTreeWidget::item { background: #141414; color: #e8e8e8; }
+            QListWidget::item:alternate, QTreeWidget::item:alternate { background: #1a1a1a; }
+            QListWidget::item:selected, QTreeWidget::item:selected { background: #2a2a2a; color: #ffffff; }
             QProgressBar {
                 background-color: #141414;
                 color: #f5f5f5;
@@ -237,21 +245,36 @@ class SearchWindow(QtWidgets.QWidget):
     def _refresh_list(self, cards: List[Dict[str, object]], folder_path: str) -> None:
         self.list_widget.clear()
         if not cards:
-            self.list_widget.addItem(f"No PDFs found in {folder_path}.")
+            empty = QtWidgets.QTreeWidgetItem([f"No PDFs found in {folder_path}."])
+            self.list_widget.addTopLevelItem(empty)
             self._update_json_display(None)
             return
 
         normalized_cards = [_normalize_card(card, self.ALLOWED_FIELDS) for card in cards]
-        for card in normalized_cards:
+        parents: Dict[str, QtWidgets.QTreeWidgetItem] = {}
+        for idx, card in enumerate(normalized_cards):
             data = self._extract_card_data(card)
-            path = str(self._extract_file_path(data))
-            name = Path(path).name if path else "Unknown"
-            item = QtWidgets.QListWidgetItem(name)
-            item.setData(QtCore.Qt.UserRole, path)
-            self.list_widget.addItem(item)
+            preview_path = str(self._extract_file_path(data))
+            pdf_path = str(data.get("pdf_path") or "")
+            pdf_name = Path(pdf_path).name if pdf_path else "Unknown file"
+            entry_name = Path(preview_path).name or f"Entry {idx + 1}"
+
+            parent_key = pdf_path or pdf_name
+            parent = parents.get(parent_key)
+            if parent is None:
+                parent = QtWidgets.QTreeWidgetItem([pdf_name])
+                parent.setFirstColumnSpanned(False)
+                parents[parent_key] = parent
+                self.list_widget.addTopLevelItem(parent)
+            child = QtWidgets.QTreeWidgetItem([f"    {entry_name}"])
+            child.setData(0, QtCore.Qt.UserRole, preview_path)
+            parent.addChild(child)
+
+        self.list_widget.expandAll()
         self.cards = normalized_cards
-        if normalized_cards:
-            self.list_widget.setCurrentRow(0)
+        first = self.list_widget.topLevelItem(0)
+        if first and first.childCount() > 0:
+            self.list_widget.setCurrentItem(first.child(0))
             self._update_json_display(normalized_cards[0])
         else:
             self._update_json_display(None)
@@ -278,34 +301,51 @@ class SearchWindow(QtWidgets.QWidget):
         self.cards = cards
         self.list_widget.clear()
         if cards:
-            for card in cards:
+            parents: Dict[str, QtWidgets.QTreeWidgetItem] = {}
+            for idx, card in enumerate(cards):
                 data = self._extract_card_data(card)
-                name = Path(str(self._extract_file_path(card))).name
-                path = str(self._extract_file_path(card))
-                item = QtWidgets.QListWidgetItem(name)
-                item.setData(QtCore.Qt.UserRole, path)
-                self.list_widget.addItem(item)
-            self.list_widget.setCurrentRow(0)
-            self._update_json_display(cards[0])
+                preview_path = str(self._extract_file_path(card))
+                pdf_path = str(data.get("pdf_path") or "")
+                pdf_name = Path(pdf_path).name if pdf_path else "Unknown file"
+                entry_name = Path(preview_path).name or f"Entry {idx + 1}"
+
+                parent_key = pdf_path or pdf_name
+                parent = parents.get(parent_key)
+                if parent is None:
+                    parent = QtWidgets.QTreeWidgetItem([pdf_name])
+                    parents[parent_key] = parent
+                    self.list_widget.addTopLevelItem(parent)
+                child = QtWidgets.QTreeWidgetItem([f"    {entry_name}"])
+                child.setData(0, QtCore.Qt.UserRole, preview_path)
+                parent.addChild(child)
+            self.list_widget.expandAll()
+            first = self.list_widget.topLevelItem(0)
+            if first and first.childCount() > 0:
+                self.list_widget.setCurrentItem(first.child(0))
+                self._update_json_display(cards[0])
+            else:
+                self._update_json_display(None)
         else:
-            self.list_widget.addItem("No cached data. Scan a folder to begin.")
+            empty = QtWidgets.QTreeWidgetItem(["No cached data. Scan a folder to begin."])
+            self.list_widget.addTopLevelItem(empty)
             self._update_json_display(None)
 
     def _on_clear_clicked(self) -> None:
         clear_cache()
         self.cards = []
         self.list_widget.clear()
-        self.list_widget.addItem("Cache cleared. Scan a folder to begin.")
+        empty = QtWidgets.QTreeWidgetItem(["Cache cleared. Scan a folder to begin."])
+        self.list_widget.addTopLevelItem(empty)
         self.image_label.setText("Select a card to preview the image.")
         self.image_label.setPixmap(QtGui.QPixmap())
         self._update_json_display(None)
 
     def _on_card_highlighted(
         self,
-        current: QtWidgets.QListWidgetItem,
-        previous: QtWidgets.QListWidgetItem = None,
+        current: QtWidgets.QTreeWidgetItem,
+        previous: QtWidgets.QTreeWidgetItem = None,
     ) -> None:
-        path = current.data(QtCore.Qt.UserRole) if current else None
+        path = current.data(0, QtCore.Qt.UserRole) if current else None
         if not path:
             self._update_json_display(None)
             return

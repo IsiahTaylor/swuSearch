@@ -35,7 +35,9 @@ def pdf_page_to_card(pdf_path: str, page_index: int) -> Optional[Dict[str, objec
     file_ref = str(preview_path)
 
     return {
-        "file_path": file_ref,
+        "file_path": file_ref,  # preview image path
+        "pdf_path": str(path),
+        "page_index": page_index,
         "size_bytes": stat.st_size,
         "modified_ts": stat.st_mtime,
         "scanned_text": full_text,
