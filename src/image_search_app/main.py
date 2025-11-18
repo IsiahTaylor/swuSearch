@@ -11,7 +11,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from image_search_app.scripts.search_for_img_file import choose_image_folder
 from image_search_app.scripts.scan_worker import ScanWorker
-from image_search_app.search_filters import filter_cards
+from image_search_app.scripts.search_filters import filter_cards
 
 
 class SearchWindow(QtWidgets.QWidget):
